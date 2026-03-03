@@ -1,8 +1,9 @@
-import { readFileSync, renameSync, existsSync } from 'fs'
+import { readFileSync, renameSync, writeFileSync } from 'fs'
 import { request } from 'https'
-import { basename, extname } from 'path'
-import { GROQ_API_KEY } from './config.js'
+import { basename, extname, join } from 'path'
+import { GROQ_API_KEY, TTS_VOICE, UPLOADS_DIR } from './config.js'
 import { logger } from './logger.js'
+import { randomUUID } from 'crypto'
 
 /**
  * Transcribe an audio file using Groq Whisper API.
@@ -88,11 +89,71 @@ export async function transcribeAudio(filePath: string): Promise<string> {
 }
 
 /**
- * Check if STT capabilities are available.
+ * Synthesize text to speech using Groq TTS API.
+ * Returns the path to the saved MP3 file.
+ */
+export async function synthesizeAudio(text: string): Promise<string> {
+  if (!GROQ_API_KEY) {
+    throw new Error('GROQ_API_KEY not configured')
+  }
+
+  const voice = TTS_VOICE || 'tara'
+  const payload = JSON.stringify({
+    model: 'canopylabs/orpheus-v1-english',
+    input: text,
+    voice,
+    response_format: 'wav',
+  })
+
+  const outPath = join(UPLOADS_DIR, `tts-${randomUUID()}.wav`)
+
+  return new Promise<string>((resolve, reject) => {
+    const req = request(
+      {
+        hostname: 'api.groq.com',
+        path: '/openai/v1/audio/speech',
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+        },
+      },
+      (res: any) => {
+        // If the status is not 2xx, collect body for error message
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          const errChunks: Buffer[] = []
+          res.on('data', (c: Buffer) => errChunks.push(c))
+          res.on('end', () => {
+            const errBody = Buffer.concat(errChunks).toString('utf-8')
+            reject(new Error(`Groq TTS error ${res.statusCode}: ${errBody}`))
+          })
+          return
+        }
+
+        const chunks: Buffer[] = []
+        res.on('data', (chunk: Buffer) => chunks.push(chunk))
+        res.on('end', () => {
+          const audio = Buffer.concat(chunks)
+          writeFileSync(outPath, audio)
+          logger.info({ outPath, bytes: audio.length }, 'TTS audio saved')
+          resolve(outPath)
+        })
+      }
+    )
+
+    req.on('error', reject)
+    req.write(payload)
+    req.end()
+  })
+}
+
+/**
+ * Check if voice capabilities are available.
  */
 export function voiceCapabilities(): { stt: boolean; tts: boolean } {
   return {
     stt: !!GROQ_API_KEY,
-    tts: false, // TTS not enabled in this build
+    tts: !!GROQ_API_KEY,
   }
 }

@@ -12,7 +12,7 @@ import { runAgent } from './agent.js'
 import { getSession, setSession, clearSession } from './db.js'
 import { buildMemoryContext, saveConversationTurn, runDecaySweep } from './memory.js'
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js'
-import { transcribeAudio, voiceCapabilities } from './voice.js'
+import { transcribeAudio, synthesizeAudio, voiceCapabilities } from './voice.js'
 import { logger } from './logger.js'
 
 // Scheduler imports (always available)
@@ -155,7 +155,7 @@ export function isAuthorised(chatId: string): boolean {
 async function handleMessage(
   ctx: Context,
   rawText: string,
-  forceVoiceReply = false
+  voiceReply = false
 ): Promise<void> {
   const chatId = String(ctx.chat?.id)
   if (!chatId || !ctx.chat) return
@@ -191,16 +191,50 @@ async function handleMessage(
     await saveConversationTurn(chatId, rawText, responseText)
 
     // Send response
-    const formatted = formatForTelegram(responseText)
-    const chunks = splitMessage(formatted)
+    const shouldVoice = voiceReply || voiceModeChats.has(chatId)
 
-    for (const chunk of chunks) {
+    if (shouldVoice && voiceCapabilities().tts) {
       try {
-        await ctx.api.sendMessage(chatId, chunk, { parse_mode: 'HTML' })
-      } catch (htmlErr) {
-        // Fallback to plain text if HTML parsing fails
-        logger.warn({ err: htmlErr }, 'HTML send failed, falling back to plain text')
-        await ctx.api.sendMessage(chatId, responseText.slice(0, MAX_MESSAGE_LENGTH))
+        // Synthesize and send as voice message
+        await ctx.api.sendChatAction(chatId, 'record_voice')
+        // Strip HTML tags for clean TTS input
+        const plainText = responseText.replace(/<[^>]+>/g, '').trim()
+        const audioPath = await synthesizeAudio(plainText)
+        const { createReadStream } = await import('fs')
+        await ctx.api.sendVoice(chatId, new InputFile(createReadStream(audioPath)))
+        // Also send text so the content is searchable / copy-able
+        const formatted = formatForTelegram(responseText)
+        const chunks = splitMessage(formatted)
+        for (const chunk of chunks) {
+          try {
+            await ctx.api.sendMessage(chatId, chunk, { parse_mode: 'HTML' })
+          } catch {
+            await ctx.api.sendMessage(chatId, responseText.slice(0, MAX_MESSAGE_LENGTH))
+          }
+        }
+      } catch (ttsErr) {
+        logger.warn({ err: ttsErr }, 'TTS failed, falling back to text-only reply')
+        const formatted = formatForTelegram(responseText)
+        const chunks = splitMessage(formatted)
+        for (const chunk of chunks) {
+          try {
+            await ctx.api.sendMessage(chatId, chunk, { parse_mode: 'HTML' })
+          } catch {
+            await ctx.api.sendMessage(chatId, responseText.slice(0, MAX_MESSAGE_LENGTH))
+          }
+        }
+      }
+    } else {
+      const formatted = formatForTelegram(responseText)
+      const chunks = splitMessage(formatted)
+      for (const chunk of chunks) {
+        try {
+          await ctx.api.sendMessage(chatId, chunk, { parse_mode: 'HTML' })
+        } catch (htmlErr) {
+          // Fallback to plain text if HTML parsing fails
+          logger.warn({ err: htmlErr }, 'HTML send failed, falling back to plain text')
+          await ctx.api.sendMessage(chatId, responseText.slice(0, MAX_MESSAGE_LENGTH))
+        }
       }
     }
   } catch (err) {
@@ -281,13 +315,15 @@ export function createBot(): Bot {
       return
     }
 
-    // Voice mode not applicable without TTS, but toggle for future use
     if (voiceModeChats.has(chatId)) {
       voiceModeChats.delete(chatId)
-      await ctx.reply('🔇 Voice mode off. Responses will be text.')
+      await ctx.reply('🔇 Voice mode off. Responses will be text only.')
     } else {
       voiceModeChats.add(chatId)
-      await ctx.reply('🔊 Voice mode on. (Note: TTS not enabled in this build.)')
+      const ttsNote = caps.tts
+        ? 'Responses will be sent as voice messages (+ text).'
+        : 'TTS not configured — responses will be text only.'
+      await ctx.reply(`🔊 Voice mode on. ${ttsNote}`)
     }
   })
 
@@ -506,7 +542,7 @@ export function createBot(): Bot {
       const transcript = await transcribeAudio(localPath)
       logger.info({ chatId, transcript: transcript.slice(0, 100) }, 'Voice transcribed')
 
-      await handleMessage(ctx, `[Voice transcribed]: ${transcript}`, true)
+      await handleMessage(ctx, `[Voice transcribed]: ${transcript}`, true /* voiceReply */)
     } catch (err) {
       logger.error({ err }, 'Voice processing error')
       await ctx.reply(`Voice error: ${err instanceof Error ? err.message : String(err)}`)

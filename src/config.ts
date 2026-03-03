@@ -19,8 +19,9 @@ export const ALLOWED_CHAT_IDS = (env['ALLOWED_CHAT_IDS'] ?? '')
   .map((s) => s.trim())
   .filter(Boolean)
 
-// ── Voice — Groq STT ──────────────────────────────────
+// ── Voice — Groq STT + TTS ────────────────────────────
 export const GROQ_API_KEY = env['GROQ_API_KEY'] ?? ''
+export const TTS_VOICE = env['TTS_VOICE'] ?? 'Celeste-PlayAI'
 
 // ── WhatsApp ───────────────────────────────────────────
 export const WHATSAPP_ENABLED = (env['WHATSAPP_ENABLED'] ?? 'false') === 'true'
