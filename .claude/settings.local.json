@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(sudo launchctl:*)",
+      "Bash(claude:*)",
+      "Bash(node:*)",
+      "Bash(env:*)",
+      "Bash(tsx:*)",
+      "Bash(npx tsx:*)"
+    ]
+  }
+}
