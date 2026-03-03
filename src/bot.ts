@@ -7,6 +7,7 @@ import {
   TYPING_REFRESH_MS,
   SCHEDULER_ENABLED,
   WHATSAPP_ENABLED,
+  PROJECT_ROOT,
 } from './config.js'
 import { runAgent } from './agent.js'
 import { getSession, setSession, clearSession } from './db.js'
@@ -15,7 +16,6 @@ import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessa
 import { transcribeAudio, synthesizeAudio, voiceCapabilities } from './voice.js'
 import { logger } from './logger.js'
 
-// Scheduler imports (always available)
 import {
   createTask,
   getAllTasks,
@@ -25,6 +25,8 @@ import {
   resumeTask,
   getMemoriesForChat,
   deleteAllMemories,
+  getDb,
+  saveMemory,
 } from './db.js'
 import { computeNextRun } from './scheduler.js'
 
@@ -40,6 +42,20 @@ import {
 
 // In-memory voice mode toggle per chat
 const voiceModeChats = new Set<string>()
+
+// Bot start time (for uptime display)
+const BOT_START = Date.now()
+
+function formatUptime(ms: number): string {
+  const s = Math.floor(ms / 1000)
+  const m = Math.floor(s / 60)
+  const h = Math.floor(m / 60)
+  const d = Math.floor(h / 24)
+  if (d > 0) return `${d}d ${h % 24}h ${m % 60}m`
+  if (h > 0) return `${h}h ${m % 60}m ${s % 60}s`
+  if (m > 0) return `${m}m ${s % 60}s`
+  return `${s}s`
+}
 
 // ── Formatting ─────────────────────────────────────────
 
@@ -306,6 +322,154 @@ export function createBot(): Bot {
     await ctx.reply('🧹 All memories cleared.')
   })
 
+  bot.command('status', async (ctx) => {
+    const chatId = String(ctx.chat.id)
+    if (!isAuthorised(chatId)) return
+
+    const caps = voiceCapabilities()
+    const tasks = getAllTasks()
+    const activeTasks = tasks.filter((t) => t.status === 'active').length
+    const uptime = formatUptime(Date.now() - BOT_START)
+
+    // DB stats
+    const db = getDb()
+    const sessionCount = (db.prepare('SELECT COUNT(*) as c FROM sessions').get() as { c: number }).c
+    const memoryCount = (db.prepare('SELECT COUNT(*) as c FROM memories').get() as { c: number }).c
+
+    const voiceIcon = voiceModeChats.has(chatId) ? '🔊 on' : '🔇 off'
+
+    const lines = [
+      `<b>🤖 ClaudeClaw Status</b>`,
+      ``,
+      `<b>⏱ Uptime:</b> ${uptime}`,
+      `<b>🖥 Node:</b> ${process.version}`,
+      ``,
+      `<b>🎙 STT (Groq):</b> ${caps.stt ? '✅ ready' : '❌ not configured'}`,
+      `<b>🔈 TTS (Orpheus):</b> ${caps.tts ? '✅ ready' : '❌ not configured'}`,
+      `<b>🗣 Voice mode:</b> ${voiceIcon}`,
+      ``,
+      `<b>🗓 Scheduler:</b> ${SCHEDULER_ENABLED ? `✅ ${activeTasks} active / ${tasks.length} total` : '⏸ disabled'}`,
+      `<b>📱 WhatsApp:</b> ${WHATSAPP_ENABLED ? '✅ enabled' : '⏸ disabled'}`,
+      ``,
+      `<b>🧠 Memories:</b> ${memoryCount}`,
+      `<b>💬 Sessions:</b> ${sessionCount}`,
+    ]
+
+    await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' })
+  })
+
+  bot.command('checkpoint', async (ctx) => {
+    const chatId = String(ctx.chat.id)
+    if (!isAuthorised(chatId)) return
+
+    await ctx.reply('💾 Saving checkpoint...')
+    await ctx.api.sendChatAction(chatId, 'typing')
+
+    try {
+      const sessionId = getSession(chatId)
+      const result = await runAgent(
+        'Write a 3-5 bullet summary of the key decisions, findings, and context from our conversation so far. Be terse. Format as plain bullet points (- item). This will be saved as a memory checkpoint.',
+        sessionId
+      )
+
+      const summary = result.text ?? 'No summary produced.'
+
+      // Save as high-salience semantic memory (salience 5.0 = max)
+      getDb()
+        .prepare(
+          `INSERT INTO memories (chat_id, topic_key, content, sector, salience, created_at, accessed_at)
+           VALUES (?, ?, ?, 'semantic', 5.0, ?, ?)`
+        )
+        .run(chatId, 'checkpoint', `[Checkpoint] ${summary}`, Date.now(), Date.now())
+
+      await ctx.reply(
+        `✅ <b>Checkpoint saved.</b>\n\n${summary}\n\n<i>Safe to /newchat — this summary will persist.</i>`,
+        { parse_mode: 'HTML' }
+      )
+    } catch (err) {
+      logger.error({ err }, '/checkpoint error')
+      await ctx.reply(`Checkpoint failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
+  bot.command('convolife', async (ctx) => {
+    const chatId = String(ctx.chat.id)
+    if (!isAuthorised(chatId)) return
+
+    try {
+      const { readdirSync, readFileSync, statSync } = await import('fs')
+      const { join, sep } = await import('path')
+      const { homedir } = await import('os')
+
+      // Claude stores sessions at ~/.claude/projects/<project-path-with-hyphens>/
+      // Project path is PROJECT_ROOT with slashes replaced by hyphens
+      const projectSlug = PROJECT_ROOT.split(sep).filter(Boolean).join('-')
+      const sessionDir = join(homedir(), '.claude', 'projects', projectSlug)
+
+      let latestFile: string | null = null
+      let latestMtime = 0
+
+      try {
+        const files = readdirSync(sessionDir).filter((f) => f.endsWith('.jsonl'))
+        for (const f of files) {
+          const fullPath = join(sessionDir, f)
+          const mtime = statSync(fullPath).mtimeMs
+          if (mtime > latestMtime) {
+            latestMtime = mtime
+            latestFile = fullPath
+          }
+        }
+      } catch {
+        // dir may not exist yet
+      }
+
+      if (!latestFile) {
+        await ctx.reply('📊 No session data found yet. Start a conversation first.')
+        return
+      }
+
+      // Scan JSONL for the last cache_read_input_tokens value
+      const lines = readFileSync(latestFile, 'utf-8').trim().split('\n')
+      let lastTokens = 0
+      for (const line of lines) {
+        try {
+          const obj = JSON.parse(line)
+          const val =
+            obj?.message?.usage?.cache_read_input_tokens ??
+            obj?.usage?.cache_read_input_tokens ??
+            obj?.cache_read_input_tokens
+          if (typeof val === 'number') lastTokens = val
+        } catch {
+          // skip malformed lines
+        }
+      }
+
+      const CONTEXT_LIMIT = 200_000
+      const pct = ((lastTokens / CONTEXT_LIMIT) * 100).toFixed(1)
+      const remaining = Math.max(0, CONTEXT_LIMIT - lastTokens)
+      const remainingK = (remaining / 1000).toFixed(0)
+
+      // Visual bar (10 segments)
+      const filled = Math.round(parseFloat(pct) / 10)
+      const bar = '█'.repeat(filled) + '░'.repeat(10 - filled)
+
+      let health = '🟢'
+      if (parseFloat(pct) > 80) health = '🔴'
+      else if (parseFloat(pct) > 60) health = '🟡'
+
+      await ctx.reply(
+        `${health} <b>Context window: ${pct}% used</b>\n` +
+          `<code>[${bar}]</code>\n` +
+          `~${remainingK}k tokens remaining of ${(CONTEXT_LIMIT / 1000).toFixed(0)}k\n\n` +
+          `<i>Use /checkpoint then /newchat to reset.</i>`,
+        { parse_mode: 'HTML' }
+      )
+    } catch (err) {
+      logger.error({ err }, '/convolife error')
+      await ctx.reply(`Error reading context info: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
   bot.command('voice', async (ctx) => {
     const chatId = String(ctx.chat.id)
     const caps = voiceCapabilities()
@@ -325,6 +489,38 @@ export function createBot(): Bot {
         : 'TTS not configured — responses will be text only.'
       await ctx.reply(`🔊 Voice mode on. ${ttsNote}`)
     }
+  })
+
+  bot.command('tasks', async (ctx) => {
+    const chatId = String(ctx.chat.id)
+    if (!isAuthorised(chatId)) return
+
+    const allTasks = getAllTasks().filter((t) => t.chat_id === chatId)
+
+    if (allTasks.length === 0) {
+      await ctx.reply(
+        '📭 No scheduled tasks yet.\n\nCreate one with:\n<code>/schedule create "prompt" "cron"</code>',
+        { parse_mode: 'HTML' }
+      )
+      return
+    }
+
+    const lines = allTasks.map((t) => {
+      const icon = t.status === 'active' ? '🟢' : '⏸️'
+      const next = new Date(t.next_run).toLocaleString()
+      const lastRun = t.last_run ? new Date(t.last_run).toLocaleString() : 'never'
+      const result = t.last_result ? `\n      └ ${t.last_result.slice(0, 80)}` : ''
+      return (
+        `${icon} <code>${t.id}</code> · ${t.schedule}\n` +
+        `   📌 ${t.prompt.slice(0, 60)}\n` +
+        `   ⏭ Next: ${next}\n` +
+        `   🕐 Last: ${lastRun}${result}`
+      )
+    })
+
+    const header = `<b>📋 Scheduled Tasks (${allTasks.length})</b>\n`
+    const footer = `\n\n<i>Manage: /schedule pause &lt;id&gt; · /schedule resume &lt;id&gt; · /schedule delete &lt;id&gt;</i>`
+    await ctx.reply(header + lines.join('\n\n') + footer, { parse_mode: 'HTML' })
   })
 
   // ── Scheduler commands ─────────────────────────────
