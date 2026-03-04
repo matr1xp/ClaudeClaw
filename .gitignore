@@ -7,3 +7,4 @@ workspace/
 *.pid
 obsidian/**
 CLAUDE.md
+.vscode/

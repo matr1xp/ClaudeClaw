@@ -2,6 +2,7 @@ import {
   saveMemory,
   searchMemories,
   getRecentMemories,
+  getHighSalienceMemories,
   touchMemory,
   decayAllMemories,
   type Memory,
@@ -26,11 +27,14 @@ export async function buildMemoryContext(
     // Recent memories
     const recent = getRecentMemories(chatId, 5)
 
-    // Deduplicate by id
+    // High-salience memories (checkpoints, important facts)
+    const important = getHighSalienceMemories(chatId, 3.0, 5)
+
+    // Deduplicate by id — important first so checkpoints appear at top
     const seen = new Set<number>()
     const all: Memory[] = []
 
-    for (const m of [...searchResults, ...recent]) {
+    for (const m of [...important, ...searchResults, ...recent]) {
       if (!seen.has(m.id)) {
         seen.add(m.id)
         all.push(m)

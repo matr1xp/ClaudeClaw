@@ -10,7 +10,7 @@ import {
   WHATSAPP_ENABLED,
   MEMORY_DECAY_INTERVAL_MS,
 } from './config.js'
-import { initDatabase, closeDatabase } from './db.js'
+import { initDatabase, closeDatabase, startWalCheckpoints } from './db.js'
 import { runDecaySweep } from './memory.js'
 import { cleanupOldUploads } from './media.js'
 import { createBot, createSender } from './bot.js'
@@ -94,6 +94,7 @@ async function main(): Promise<void> {
 
   // Init database
   initDatabase()
+  startWalCheckpoints()
 
   // Ensure directories
   mkdirSync(UPLOADS_DIR, { recursive: true })

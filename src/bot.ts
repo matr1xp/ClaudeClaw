@@ -40,6 +40,8 @@ import {
   isWhatsAppReady,
 } from './whatsapp.js'
 
+import { hasScheduleIntent, parseScheduleNL } from './schedule-parse.js'
+
 // In-memory voice mode toggle per chat
 const voiceModeChats = new Set<string>()
 
@@ -181,17 +183,37 @@ async function handleMessage(
     return
   }
 
+  // Typing indicator helper
+  const sendTyping = () => {
+    ctx.api.sendChatAction(chatId, 'typing').catch(() => {})
+  }
+
+  // Intercept natural language scheduling intents
+  if (SCHEDULER_ENABLED && hasScheduleIntent(rawText)) {
+    sendTyping()
+    const parsed = await parseScheduleNL(rawText)
+    if (parsed) {
+      try {
+        const nextRun = computeNextRun(parsed.cron)
+        const id = randomUUID().slice(0, 8)
+        createTask({ id, chat_id: chatId, prompt: parsed.prompt, schedule: parsed.cron, next_run: nextRun, status: 'active' })
+        await ctx.reply(
+          `✅ <b>Scheduled task created automatically</b>\n\n📌 ${parsed.prompt}\n⏰ Cron: <code>${parsed.cron}</code>\n⏭ Next run: ${new Date(nextRun).toLocaleString()}`,
+          { parse_mode: 'HTML' }
+        )
+        return // Short-circuit, we handled it
+      } catch (err) {
+        logger.error({ err, cron: parsed.cron }, 'Failed to schedule auto-detected intent')
+      }
+    }
+  }
+
   // Build memory context
   const memoryContext = await buildMemoryContext(chatId, rawText)
   const fullMessage = memoryContext ? `${memoryContext}\n${rawText}` : rawText
 
   // Get or create session
   const sessionId = getSession(chatId)
-
-  // Typing indicator
-  const sendTyping = () => {
-    ctx.api.sendChatAction(chatId, 'typing').catch(() => {})
-  }
 
   try {
     const result = await runAgent(fullMessage, sessionId, sendTyping)
@@ -563,23 +585,40 @@ export function createBot(): Bot {
 
       switch (action) {
         case 'create': {
-          // Parse: "prompt" "cron"
+          // Try Parse: "prompt" "cron"
           const createMatch = rest.match(/"([^"]+)"\s+"([^"]+)"/)
-          if (!createMatch) {
-            await ctx.reply('Usage: /schedule create "prompt" "cron expression"')
-            return
-          }
-          const [, prompt, cron] = createMatch
-          try {
-            const nextRun = computeNextRun(cron)
-            const id = randomUUID().slice(0, 8)
-            createTask({ id, chat_id: chatId, prompt, schedule: cron, next_run: nextRun, status: 'active' })
-            await ctx.reply(
-              `✅ Task <code>${id}</code> created\nNext run: ${new Date(nextRun).toLocaleString()}`,
-              { parse_mode: 'HTML' }
-            )
-          } catch (err) {
-            await ctx.reply(`Invalid cron expression: ${cron}`)
+          if (createMatch) {
+            const [, prompt, cron] = createMatch
+            try {
+              const nextRun = computeNextRun(cron)
+              const id = randomUUID().slice(0, 8)
+              createTask({ id, chat_id: chatId, prompt, schedule: cron, next_run: nextRun, status: 'active' })
+              await ctx.reply(
+                `✅ Task <code>${id}</code> created\nNext run: ${new Date(nextRun).toLocaleString()}`,
+                { parse_mode: 'HTML' }
+              )
+            } catch (err) {
+              await ctx.reply(`Invalid cron expression: ${cron}`)
+            }
+          } else {
+            // Fallback: Natural Language Parsing
+            await ctx.api.sendChatAction(chatId, 'typing')
+            const parsed = await parseScheduleNL(rest)
+            if (!parsed) {
+              await ctx.reply('Could not parse natural language schedule. Try:\n/schedule create "prompt" "cron expression"')
+              return
+            }
+            try {
+              const nextRun = computeNextRun(parsed.cron)
+              const id = randomUUID().slice(0, 8)
+              createTask({ id, chat_id: chatId, prompt: parsed.prompt, schedule: parsed.cron, next_run: nextRun, status: 'active' })
+              await ctx.reply(
+                `✅ <b>Scheduled task created from text</b>\n\n📌 ${parsed.prompt}\n⏰ Cron: <code>${parsed.cron}</code>\n⏭ Next run: ${new Date(nextRun).toLocaleString()}`,
+                { parse_mode: 'HTML' }
+              )
+            } catch (err) {
+              await ctx.reply(`Failed to create schedule. Generated cron: \`${parsed.cron}\``)
+            }
           }
           break
         }

@@ -217,6 +217,21 @@ export function getRecentMemories(chatId: string, limit = 5): Memory[] {
     .all(chatId, limit) as Memory[]
 }
 
+export function getHighSalienceMemories(
+  chatId: string,
+  minSalience = 3.0,
+  limit = 5
+): Memory[] {
+  return getDb()
+    .prepare(
+      `SELECT * FROM memories
+       WHERE chat_id = ? AND salience >= ?
+       ORDER BY salience DESC, accessed_at DESC
+       LIMIT ?`
+    )
+    .all(chatId, minSalience, limit) as Memory[]
+}
+
 export function touchMemory(id: number): void {
   getDb()
     .prepare(
@@ -438,8 +453,35 @@ export function getWaChatMap(
   return row?.wa_chat_jid
 }
 
+// ── WAL Checkpoint ─────────────────────────────────────
+
+const WAL_CHECKPOINT_INTERVAL_MS = 60 * 60 * 1000 // 1 hour
+let walCheckpointTimer: ReturnType<typeof setInterval> | undefined
+
+export function walCheckpoint(): void {
+  try {
+    const d = getDb()
+    d.pragma('wal_checkpoint(TRUNCATE)')
+    logger.info('WAL checkpoint completed')
+  } catch (err) {
+    logger.error({ err }, 'WAL checkpoint failed')
+  }
+}
+
+export function startWalCheckpoints(): void {
+  // Run once immediately
+  walCheckpoint()
+  // Then every hour
+  walCheckpointTimer = setInterval(walCheckpoint, WAL_CHECKPOINT_INTERVAL_MS)
+}
+
 export function closeDatabase(): void {
+  if (walCheckpointTimer) {
+    clearInterval(walCheckpointTimer)
+    walCheckpointTimer = undefined
+  }
   if (db) {
+    db.pragma('wal_checkpoint(TRUNCATE)')
     db.close()
   }
 }
