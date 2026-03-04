@@ -10,3 +10,6 @@ obsidian/**
 CLAUDE.md
 .vscode/
 .claude/skills/**
+**/*test*credential*
+**/*credential*test*
+*.mjs
