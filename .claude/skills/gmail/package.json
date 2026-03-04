@@ -1,0 +1,8 @@
+{
+  "name": "gmail-skill",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "googleapis": "^133.0.0"
+  }
+}
