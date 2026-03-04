@@ -247,7 +247,7 @@ async function testConnection() {
     });
 
     const accessToken = tokenResponse.data.access_token;
-    const apiUrl = `https://${dc.api}/api/accounts/${env.ZOHO_ACCOUNT_ID}/folders/view`;
+    const apiUrl = `https://${dc.api}/api/accounts/${env.ZOHO_ACCOUNT_ID}/folders`;
     
     const response = await axios.get(apiUrl, {
       headers: { Authorization: `Bearer ${accessToken}` }

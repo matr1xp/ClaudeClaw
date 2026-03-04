@@ -103,7 +103,7 @@ async function listFolders() {
   const { client, env } = await getApiClient();
 
   try {
-    const response = await client.get(`/accounts/${env.ZOHO_ACCOUNT_ID}/folders/view`);
+    const response = await client.get(`/accounts/${env.ZOHO_ACCOUNT_ID}/folders`);
     const folders = response.data.data || [];
 
     console.log('\n📁 Folders\n');
