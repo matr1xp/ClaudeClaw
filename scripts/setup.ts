@@ -25,6 +25,30 @@ const rl = createInterface({ input: process.stdin, output: process.stdout })
 const ask = (q: string): Promise<string> =>
   new Promise((resolve) => rl.question(`${CYAN}?${RESET} ${q} `, resolve))
 
+// Parse existing .env file into an object
+function parseEnvFile(envPath: string): Record<string, string> {
+  if (!existsSync(envPath)) return {}
+  const content = readFileSync(envPath, 'utf-8')
+  const env: Record<string, string> = {}
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const eqIndex = trimmed.indexOf('=')
+    if (eqIndex === -1) continue
+    const key = trimmed.slice(0, eqIndex).trim()
+    const value = trimmed.slice(eqIndex + 1).trim()
+    env[key] = value
+  }
+  return env
+}
+
+// Mask sensitive values for display (show first 4 and last 4 chars)
+function maskValue(value: string): string {
+  if (!value) return ''
+  if (value.length <= 8) return '****'
+  return `${value.slice(0, 4)}****${value.slice(-4)}`
+}
+
 async function main() {
   console.log(`
 ${BOLD}╔══════════════════════════════════════╗
@@ -98,6 +122,14 @@ ${BOLD}╔═══════════════════════�
 
   const envPath = resolve(PROJECT_ROOT, '.env')
   const envExamplePath = resolve(PROJECT_ROOT, '.env.example')
+
+  // Load existing config if present
+  const existingEnv = parseEnvFile(envPath)
+  const hasExistingEnv = Object.keys(existingEnv).length > 0
+  if (hasExistingEnv) {
+    info('Found existing .env file. Press Enter to keep current values.')
+  }
+
   const config: Record<string, string> = {}
 
   // Telegram bot token
@@ -107,7 +139,12 @@ ${BOLD}╔═══════════════════════�
   console.log(`  3. Choose a name and username`)
   console.log(`  4. Copy the token it gives you\n`)
 
-  config['TELEGRAM_BOT_TOKEN'] = await ask('Telegram bot token:')
+  const existingToken = existingEnv['TELEGRAM_BOT_TOKEN']
+  const tokenPrompt = existingToken
+    ? `Telegram bot token (${maskValue(existingToken)}):`
+    : 'Telegram bot token:'
+  const tokenInput = await ask(tokenPrompt)
+  config['TELEGRAM_BOT_TOKEN'] = tokenInput.trim() || existingToken || ''
   if (!config['TELEGRAM_BOT_TOKEN']) {
     fail('Token is required')
     process.exit(1)
@@ -116,29 +153,54 @@ ${BOLD}╔═══════════════════════�
   // Groq API key
   console.log(`\nFor voice transcription (Groq Whisper):`)
   console.log(`  Get a free API key at https://console.groq.com\n`)
-  config['GROQ_API_KEY'] = await ask('Groq API key (Enter to skip):')
+
+  const existingGroq = existingEnv['GROQ_API_KEY']
+  const groqPrompt = existingGroq
+    ? `Groq API key (${maskValue(existingGroq)}):`
+    : 'Groq API key (Enter to skip):'
+  const groqInput = await ask(groqPrompt)
+  config['GROQ_API_KEY'] = groqInput.trim() || existingGroq || ''
 
   // Google API key (optional, for video)
-  config['GOOGLE_API_KEY'] = await ask('Google AI API key for video analysis (Enter to skip):')
+  const existingGoogle = existingEnv['GOOGLE_API_KEY']
+  const googlePrompt = existingGoogle
+    ? `Google AI API key (${maskValue(existingGoogle)}):`
+    : 'Google AI API key for video analysis (Enter to skip):'
+  const googleInput = await ask(googlePrompt)
+  config['GOOGLE_API_KEY'] = googleInput.trim() || existingGoogle || ''
 
   // WhatsApp
-  const waChoice = await ask('Enable WhatsApp bridge? (y/N):')
-  config['WHATSAPP_ENABLED'] = waChoice.toLowerCase() === 'y' ? 'true' : 'false'
+  const existingWa = existingEnv['WHATSAPP_ENABLED']
+  const waDefault = existingWa === 'true' ? 'y' : 'N'
+  const waPrompt = existingWa
+    ? `Enable WhatsApp bridge? (y/N) [current: ${existingWa === 'true' ? 'y' : 'N'}]:`
+    : 'Enable WhatsApp bridge? (y/N):'
+  const waChoice = await ask(waPrompt)
+  const waInput = waChoice.trim().toLowerCase()
+  if (waInput === 'y') {
+    config['WHATSAPP_ENABLED'] = 'true'
+  } else if (waInput === 'n') {
+    config['WHATSAPP_ENABLED'] = 'false'
+  } else {
+    config['WHATSAPP_ENABLED'] = existingWa === 'true' ? 'true' : 'false'
+  }
 
   // Scheduler
-  config['SCHEDULER_ENABLED'] = 'true'
+  config['SCHEDULER_ENABLED'] = existingEnv['SCHEDULER_ENABLED'] || 'true'
 
-  // Chat IDs — set empty initially
-  config['ALLOWED_CHAT_IDS'] = ''
+  // Chat IDs — preserve existing or set empty
+  config['ALLOWED_CHAT_IDS'] = existingEnv['ALLOWED_CHAT_IDS'] || ''
 
-  config['LOG_LEVEL'] = 'info'
-  config['NODE_ENV'] = 'development'
+  config['LOG_LEVEL'] = existingEnv['LOG_LEVEL'] || 'info'
+  config['NODE_ENV'] = existingEnv['NODE_ENV'] || 'development'
 
   // ── Step 3: Write .env ───────────────────────────
 
   header('Writing configuration...')
 
-  const envContent = Object.entries(config)
+  // Merge config into existing env (preserves any vars not in config)
+  const mergedEnv = { ...existingEnv, ...config }
+  const envContent = Object.entries(mergedEnv)
     .map(([k, v]) => `${k}=${v}`)
     .join('\n')
   writeFileSync(envPath, envContent + '\n')

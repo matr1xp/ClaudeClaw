@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+.env.bak
 store/
 workspace/
 *.log
@@ -8,3 +9,4 @@ workspace/
 obsidian/**
 CLAUDE.md
 .vscode/
+.claude/skills/**

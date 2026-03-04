@@ -1,4 +1,4 @@
-# ClaudeClaw 
+# ClaudeClaw
 
 You are Marlon's personal AI assistant, accessible via Telegram.
 You run as a persistent service on their machine.
@@ -33,6 +33,7 @@ If you need clarification, ask one short question.
 - This project lives at the directory where CLAUDE.md is located
 - Obsidian vault: /Users/marlon/workspace/Projects/AI/ClaudeClaw/obsidian
 - Gemini API key: stored in this project's .env as GOOGLE_API_KEY
+- **All output files go in workspace directory**: When creating any files (HTML, images, documents, etc.), save them to `/Users/marlon/workspace/Projects/AI/ClaudeClaw/workspace` or subdirectories
 
 ## Available Skills
 

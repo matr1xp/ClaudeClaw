@@ -10,7 +10,8 @@
       "Bash(npx tsx:*)",
       "Bash(npm install:*)",
       "Bash(chmod +x:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(ls:*)"
     ]
   }
 }
