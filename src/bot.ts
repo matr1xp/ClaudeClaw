@@ -400,9 +400,21 @@ export function createBot(): Bot {
     await ctx.api.sendChatAction(chatId, 'typing')
 
     try {
+      // Build local transcript from stored memories so the summary is
+      // useful even if the Claude Code session has expired server-side.
+      const recentMemories = getMemoriesForChat(chatId, 30)
+      const transcript = recentMemories
+        .reverse() // oldest first for chronological reading
+        .map((m) => `- ${m.content}`)
+        .join('\n')
+
+      const contextBlock = transcript
+        ? `Here is the conversation history to summarize:\n\n${transcript}\n\n`
+        : ''
+
       const sessionId = getSession(chatId)
       const result = await runAgent(
-        'Write a 3-5 bullet summary of the key decisions, findings, and context from our conversation so far. Be terse. Format as plain bullet points (- item). This will be saved as a memory checkpoint.',
+        `${contextBlock}Write a 3-5 bullet summary of the key decisions, findings, and context from the conversation above. Be terse. Format as plain bullet points (- item). This will be saved as a memory checkpoint.`,
         sessionId
       )
 
