@@ -7,7 +7,7 @@ import {
   decayAllMemories,
   type Memory,
 } from './db.js'
-import { logger } from './logger.js'
+import { logger, logError } from './logger.js'
 
 const SEMANTIC_PATTERN =
   /\b(my|i am|i'm|i prefer|remember|always|never|i use|i like|i hate|i need|i want|i work|i live)\b/i
@@ -54,7 +54,7 @@ export async function buildMemoryContext(
 
     return `[Memory context]\n${lines.join('\n')}\n`
   } catch (err) {
-    logger.error({ err }, 'Failed to build memory context')
+    logError(err, { command: 'buildMemoryContext', chatId })
     return ''
   }
 }
@@ -85,7 +85,7 @@ export async function saveConversationTurn(
       saveMemory(chatId, summary, 'episodic')
     }
   } catch (err) {
-    logger.error({ err }, 'Failed to save conversation turn')
+    logError(err, { command: 'saveConversationTurn', chatId })
   }
 }
 
@@ -101,6 +101,6 @@ export function runDecaySweep(): void {
       'Memory decay sweep complete'
     )
   } catch (err) {
-    logger.error({ err }, 'Memory decay sweep failed')
+    logError(err, { command: 'runDecaySweep' })
   }
 }

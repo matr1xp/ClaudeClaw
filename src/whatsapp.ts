@@ -11,7 +11,7 @@ import {
   setWaChatMap,
   getWaChatMap,
 } from './db.js'
-import { logger } from './logger.js'
+import { logger, logError } from './logger.js'
 import { STORE_DIR } from './config.js'
 
 type IncomingHandler = (chatJid: string, sender: string, content: string) => Promise<void>
@@ -71,7 +71,7 @@ export function initWhatsApp(incomingHandler: IncomingHandler): void {
         await onIncoming(chatId, sender, content)
       }
     } catch (err) {
-      logger.error({ err }, 'Error handling WhatsApp message')
+      logError(err, { command: 'waIncomingMessage' })
     }
   })
 
@@ -81,7 +81,7 @@ export function initWhatsApp(incomingHandler: IncomingHandler): void {
   })
 
   client.initialize().catch((err: Error) => {
-    logger.error({ err }, 'WhatsApp initialization failed')
+    logError(err, { command: 'waInit' })
   })
 }
 
@@ -99,7 +99,7 @@ async function processOutbox(): Promise<void> {
       logger.info({ chatJid: msg.chat_jid }, 'WhatsApp message sent')
     } catch (err) {
       markWaMessageFailed(msg.id)
-      logger.error({ err, id: msg.id }, 'Failed to send WhatsApp message')
+      logError(err, { command: 'waSendMessage', chatJid: msg.chat_jid, msgId: msg.id })
     }
   }
 }
@@ -128,7 +128,7 @@ export async function getRecentChats(limit = 10): Promise<
       timestamp: chat.lastMessage?.timestamp ? chat.lastMessage.timestamp * 1000 : 0,
     }))
   } catch (err) {
-    logger.error({ err }, 'Failed to get WhatsApp chats')
+    logError(err, { command: 'waGetChats' })
     return []
   }
 }

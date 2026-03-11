@@ -14,7 +14,7 @@ import { getSession, setSession, clearSession } from './db.js'
 import { buildMemoryContext, saveConversationTurn, runDecaySweep } from './memory.js'
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js'
 import { transcribeAudio, synthesizeAudio, voiceCapabilities } from './voice.js'
-import { logger } from './logger.js'
+import { logger, logError } from './logger.js'
 
 import {
   createTask,
@@ -203,7 +203,7 @@ async function handleMessage(
         )
         return // Short-circuit, we handled it
       } catch (err) {
-        logger.error({ err, cron: parsed.cron }, 'Failed to schedule auto-detected intent')
+        logError(err, { chatId, command: 'scheduleAutoCreate', cron: parsed.cron })
       }
     }
   }
@@ -251,7 +251,7 @@ async function handleMessage(
           }
         }
       } catch (ttsErr) {
-        logger.warn({ err: ttsErr }, 'TTS failed, falling back to text-only reply')
+        logError(ttsErr, { chatId, command: 'tts' })
         const formatted = formatForTelegram(responseText)
         const chunks = splitMessage(formatted)
         for (const chunk of chunks) {
@@ -270,13 +270,13 @@ async function handleMessage(
           await ctx.api.sendMessage(chatId, chunk, { parse_mode: 'HTML' })
         } catch (htmlErr) {
           // Fallback to plain text if HTML parsing fails
-          logger.warn({ err: htmlErr }, 'HTML send failed, falling back to plain text')
+          logError(htmlErr, { chatId, command: 'sendHTML' })
           await ctx.api.sendMessage(chatId, responseText.slice(0, MAX_MESSAGE_LENGTH))
         }
       }
     }
   } catch (err) {
-    logger.error({ err, chatId }, 'Message handling error')
+    logError(err, { chatId, command: 'handleMessage' })
     await ctx.reply(`Error: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
@@ -344,6 +344,18 @@ export function createBot(): Bot {
     await ctx.reply('🧹 All memories cleared.')
   })
 
+  bot.command('restart', async (ctx) => {
+    const chatId = String(ctx.chat.id)
+    if (!isAuthorised(chatId)) return
+
+    await ctx.reply('🔄 Restarting service...')
+
+    // Delay exit slightly to ensure the Telegram API receives the reply
+    setTimeout(() => {
+      process.exit(0)
+    }, 1000)
+  })
+
   bot.command('status', async (ctx) => {
     const chatId = String(ctx.chat.id)
     if (!isAuthorised(chatId)) return
@@ -409,7 +421,7 @@ export function createBot(): Bot {
         { parse_mode: 'HTML' }
       )
     } catch (err) {
-      logger.error({ err }, '/checkpoint error')
+      logError(err, { chatId, command: 'checkpoint' })
       await ctx.reply(`Checkpoint failed: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
@@ -487,7 +499,7 @@ export function createBot(): Bot {
         { parse_mode: 'HTML' }
       )
     } catch (err) {
-      logger.error({ err }, '/convolife error')
+      logError(err, { chatId, command: 'convolife' })
       await ctx.reply(`Error reading context info: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
@@ -779,7 +791,7 @@ export function createBot(): Bot {
 
       await handleMessage(ctx, `[Voice transcribed]: ${transcript}`, true /* voiceReply */)
     } catch (err) {
-      logger.error({ err }, 'Voice processing error')
+      logError(err, { chatId, command: 'voice' })
       await ctx.reply(`Voice error: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
@@ -796,7 +808,7 @@ export function createBot(): Bot {
 
       await handleMessage(ctx, buildPhotoMessage(localPath, caption))
     } catch (err) {
-      logger.error({ err }, 'Photo processing error')
+      logError(err, { chatId, command: 'photo' })
       await ctx.reply(`Photo error: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
@@ -812,7 +824,7 @@ export function createBot(): Bot {
 
       await handleMessage(ctx, buildDocumentMessage(localPath, doc.file_name ?? 'document', caption))
     } catch (err) {
-      logger.error({ err }, 'Document processing error')
+      logError(err, { chatId, command: 'document' })
       await ctx.reply(`Document error: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
@@ -828,14 +840,14 @@ export function createBot(): Bot {
 
       await handleMessage(ctx, buildVideoMessage(localPath, caption))
     } catch (err) {
-      logger.error({ err }, 'Video processing error')
+      logError(err, { chatId, command: 'video' })
       await ctx.reply(`Video error: ${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
   // Error handler
   bot.catch((err) => {
-    logger.error({ err: err.error }, 'Bot error')
+    logError(err.error ?? err, { command: 'botFramework' })
   })
 
   return bot

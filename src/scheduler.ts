@@ -1,7 +1,7 @@
 import { CronExpressionParser } from 'cron-parser'
 import { getDueTasks, updateTaskAfterRun } from './db.js'
 import { runAgent } from './agent.js'
-import { logger } from './logger.js'
+import { logger, logError } from './logger.js'
 import { SCHEDULER_POLL_MS } from './config.js'
 
 type Sender = (chatId: string, text: string) => Promise<void>
@@ -17,7 +17,7 @@ export function initScheduler(send: Sender): void {
   pollInterval = setInterval(runDueTasks, SCHEDULER_POLL_MS)
   logger.info({ intervalMs: SCHEDULER_POLL_MS }, 'Scheduler started')
   // Run immediately on startup
-  runDueTasks().catch((err) => logger.error({ err }, 'Initial scheduler run failed'))
+  runDueTasks().catch((err) => logError(err, { command: 'schedulerInit' }))
 }
 
 /**
@@ -53,7 +53,7 @@ export async function runDueTasks(): Promise<void> {
 
       logger.info({ taskId: task.id, nextRun: new Date(nextRun).toISOString() }, 'Task completed')
     } catch (err) {
-      logger.error({ err, taskId: task.id }, 'Scheduled task failed')
+      logError(err, { command: 'scheduledTask', taskId: task.id, chatId: task.chat_id })
       if (sender) {
         await sender(
           task.chat_id,

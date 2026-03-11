@@ -30,6 +30,12 @@ export const WHATSAPP_ENABLED = (env['WHATSAPP_ENABLED'] ?? 'false') === 'true'
 export const SCHEDULER_ENABLED =
   (env['SCHEDULER_ENABLED'] ?? 'true') === 'true'
 
+// ── Agent ──────────────────────────────────────────────
+// 'default' = requires approval for sensitive operations (safe)
+// 'bypassPermissions' = allows autonomous execution (use with caution)
+export const AGENT_PERMISSION_MODE: 'default' | 'bypassPermissions' =
+  env['AGENT_PERMISSION_MODE'] === 'bypassPermissions' ? 'bypassPermissions' : 'default'
+
 // ── Constants ──────────────────────────────────────────
 export const MAX_MESSAGE_LENGTH = 4096
 export const TYPING_REFRESH_MS = 4000

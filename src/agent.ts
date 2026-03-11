@@ -1,7 +1,7 @@
 import { query } from '@anthropic-ai/claude-agent-sdk'
-import { PROJECT_ROOT, TYPING_REFRESH_MS } from './config.js'
+import { PROJECT_ROOT, TYPING_REFRESH_MS, AGENT_PERMISSION_MODE } from './config.js'
 import { readEnvFile } from './env.js'
-import { logger } from './logger.js'
+import { logger, logError } from './logger.js'
 
 export interface AgentResult {
   text: string | null
@@ -35,7 +35,7 @@ export async function runAgent(
       prompt: message,
       options: {
         cwd: PROJECT_ROOT,
-        permissionMode: 'bypassPermissions',
+        permissionMode: AGENT_PERMISSION_MODE,
         ...(customModel ? { model: customModel } : {}),
         env: { 
             ...process.env, 
@@ -62,7 +62,7 @@ export async function runAgent(
       }
     }
   } catch (err) {
-    logger.error({ err }, 'Agent error')
+    logError(err, { sessionId, prompt: message.slice(0, 200) })
     if (err instanceof Error && 'stdout' in err) {
       logger.error({ stdout: (err as any).stdout, stderr: (err as any).stderr }, 'Agent process output')
     }

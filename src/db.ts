@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3'
 import { mkdirSync } from 'fs'
 import { STORE_DIR } from './config.js'
-import { logger } from './logger.js'
+import { logger, logError } from './logger.js'
 
 let db: Database.Database
 
@@ -464,7 +464,7 @@ export function walCheckpoint(): void {
     d.pragma('wal_checkpoint(TRUNCATE)')
     logger.info('WAL checkpoint completed')
   } catch (err) {
-    logger.error({ err }, 'WAL checkpoint failed')
+    logError(err, { command: 'walCheckpoint' })
   }
 }
 

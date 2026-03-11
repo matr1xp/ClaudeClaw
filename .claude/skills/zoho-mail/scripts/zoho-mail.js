@@ -173,8 +173,9 @@ async function listEmails(folderId = null, maxResults = 10, query = null) {
       params.searchType = 'query';
       params.searchValue = query;
     } else {
-      const fid = folderId || 'inbox';
-      url = `/accounts/${env.ZOHO_ACCOUNT_ID}/folders/${fid}/messages`;
+      url = `/accounts/${env.ZOHO_ACCOUNT_ID}/messages/view`;
+      params.folderId = folderId || 'inbox';
+      params.sortorder = 'true';
     }
 
     const response = await client.get(url, { params });

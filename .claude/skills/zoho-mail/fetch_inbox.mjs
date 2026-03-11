@@ -35,7 +35,7 @@ async function main() {
   const inbox = foldersRes.data.data.find(f => f.folderType === 'Inbox');
   const unreadCount = inbox?.folderCount - (inbox?.readCount || 0) || 0;
   
-  // Get messages
+  // Get messages - use view endpoint with folderId param
   const response = await client.get('/accounts/' + env.ZOHO_ACCOUNT_ID + '/messages/view', {
     params: { folderId: inbox.folderId, limit: 10, sortorder: 'true' }
   });

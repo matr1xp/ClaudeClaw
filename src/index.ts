@@ -16,7 +16,7 @@ import { cleanupOldUploads } from './media.js'
 import { createBot, createSender } from './bot.js'
 import { initScheduler, stopScheduler } from './scheduler.js'
 import { initWhatsApp, stopWhatsApp, isWhatsAppReady } from './whatsapp.js'
-import { logger } from './logger.js'
+import { logger, logError } from './logger.js'
 
 const BANNER = `
  ██████╗██╗      █████╗ ██╗   ██╗██████╗ ███████╗
@@ -152,7 +152,7 @@ async function main(): Promise<void> {
       },
     })
   } catch (err) {
-    logger.error({ err }, 'Failed to start bot')
+    logError(err, { command: 'botStart' })
     console.error('\n❌ Failed to start bot. Check your TELEGRAM_BOT_TOKEN in .env\n')
     releaseLock()
     process.exit(1)
@@ -160,7 +160,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  logger.error({ err }, 'Fatal error')
+  logError(err, { command: 'main' })
   releaseLock()
   process.exit(1)
 })

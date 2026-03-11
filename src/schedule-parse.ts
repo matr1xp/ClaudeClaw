@@ -1,5 +1,5 @@
 import { runAgent } from './agent.js'
-import { logger } from './logger.js'
+import { logger, logError } from './logger.js'
 
 /**
  * Regex pre-screen for scheduling intent.
@@ -64,7 +64,7 @@ Examples:
 
     return null
   } catch (err) {
-    logger.error({ err }, 'Failed to parse schedule from natural language')
+    logError(err, { command: 'parseScheduleNL', input: text.slice(0, 100) })
     return null
   }
 }
