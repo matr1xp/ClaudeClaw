@@ -147,6 +147,7 @@ async function main(): Promise<void> {
   // Start
   try {
     await bot.start({
+      drop_pending_updates: true,
       onStart: () => {
         logger.info('ClaudeClaw running')
       },
