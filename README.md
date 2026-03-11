@@ -101,6 +101,54 @@ npm run schedule create "Status check" "0 */4 * * *" 123456789
 - Gemini API Key (for embeddings)
 - Groq API Key (for voice transcription)
 
+## Troubleshooting
+
+### Tail the logs
+
+The service writes stdout and stderr to `/tmp/claudeclaw.log`:
+
+```bash
+tail -f /tmp/claudeclaw.log
+```
+
+### Service management
+
+```bash
+# Check if service is loaded (exit code 1 = not loaded)
+launchctl list | grep claudeclaw
+
+# Reload after a build or config change
+launchctl unload ~/Library/LaunchAgents/com.claudeclaw.app.plist
+launchctl load  ~/Library/LaunchAgents/com.claudeclaw.app.plist
+
+# Check status reported by the bot
+npm run status
+```
+
+### Bot is unresponsive / crash-looping
+
+Check `/tmp/claudeclaw.log` for the error. Common causes:
+
+| Error | Fix |
+|---|---|
+| `ERR_DLOPEN_FAILED` — `better-sqlite3` compiled for wrong Node version | `npm rebuild better-sqlite3` then reload service |
+| `TELEGRAM_BOT_TOKEN not set` | Run `npm run setup` or check `.env` |
+| `Claude CLI not found` | Ensure `claude` is on the PATH in the plist `EnvironmentVariables` |
+
+### Node.js version upgrade
+
+After upgrading Node.js, native modules must be rebuilt before restarting:
+
+```bash
+npm rebuild
+launchctl unload ~/Library/LaunchAgents/com.claudeclaw.app.plist
+launchctl load  ~/Library/LaunchAgents/com.claudeclaw.app.plist
+```
+
+### Check context window usage
+
+Send `/convolife` in Telegram to see how full the Claude session context window is. When >80%, use `/checkpoint` then `/newchat` to reset cleanly.
+
 ## License
 
 MIT
